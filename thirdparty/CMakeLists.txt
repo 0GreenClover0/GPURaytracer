@@ -1,0 +1,141 @@
+# CPM - package manager
+include(CPM)
+
+# stb_image
+set(STB_IMAGE_DIR ${CMAKE_CURRENT_LIST_DIR}/stb_image)
+set(stb_image_SOURCE_DIR ${STB_IMAGE_DIR} CACHE INTERNAL "")
+add_library(stb_image STATIC ${STB_IMAGE_DIR}/stb_image.cpp)
+target_include_directories(stb_image PRIVATE ${STB_IMAGE_DIR})
+
+# miniaudio
+set(MINIAUDIO_DIR ${CMAKE_CURRENT_LIST_DIR}/miniaudio)
+set (miniaudio_SOURCE_DIR ${MINIAUDIO_DIR} CACHE INTERNAL "")
+add_library(miniaudio STATIC ${MINIAUDIO_DIR}/miniaudio.c)
+target_include_directories(miniaudio PRIVATE ${MINIAUDIO_DIR})
+
+# ImGuizmo
+set(IMGUIZMO_DIR ${CMAKE_CURRENT_LIST_DIR}/imguizmo)
+set (imguizmo_SOURCE_DIR ${IMGUIZMO_DIR} CACHE INTERNAL "")
+add_library(imguizmo STATIC ${IMGUIZMO_DIR}/ImGuizmo.cpp)
+target_include_directories(imguizmo PRIVATE ${IMGUIZMO_DIR})
+
+# ImPlot
+set(IMPLOT_DIR ${CMAKE_CURRENT_LIST_DIR}/implot)
+set (implot_SOURCE_DIR ${IMPLOT_DIR} CACHE INTERNAL "")
+add_library(implot STATIC ${IMPLOT_DIR}/implot.cpp ${IMPLOT_DIR}/implot_items.cpp ${IMPLOT_DIR}/implot_demo.cpp)
+target_include_directories(implot PRIVATE ${IMPLOT_DIR})
+
+# DDSTextureLoader
+set(DDSTEXTURELOADER_DIR ${CMAKE_CURRENT_LIST_DIR}/DDSTextureLoader)
+set (ddstextureloader_SOURCE_DIR ${DDSTEXTURELOADER_DIR} CACHE INTERNAL "")
+add_library(ddstextureloader STATIC ${DDSTEXTURELOADER_DIR}/DDSTextureLoader11.cpp)
+target_include_directories(ddstextureloader PRIVATE ${DDSTEXTURELOADER_DIR})
+
+# ImGui implementations
+set(IMGUI_IMPL_DIR ${CMAKE_CURRENT_LIST_DIR}/imgui_impl)
+set(imgui_impl_SOURCE_DIR ${IMGUI_IMPL_DIR} CACHE INTERNAL "")
+add_library(imgui_impl STATIC ${IMGUI_IMPL_DIR}/imgui_impl_win32.cpp ${IMGUI_IMPL_DIR}/imgui_impl_dx12.cpp ${IMGUI_IMPL_DIR}/imgui_impl_glfw.cpp)
+target_include_directories(imgui_impl PRIVATE ${IMGUI_IMPL_DIR})
+
+# Microsoft DX12 helpers
+set(DX12_MS_DIR ${CMAKE_CURRENT_LIST_DIR}/dx12ms)
+set(dx12_ms_SOURCE_DIR ${DX12_MS_DIR} CACHE INTERNAL "")
+add_library(dx12_ms INTERFACE ${DX12_MS_DIR}/d3dx12.h)
+target_include_directories(dx12_ms INTERFACE ${DX12_MS_DIR})
+
+# disable most assimp importers
+SET (ASSIMP_BUILD_AMF_IMPORTER OFF)
+SET (ASSIMP_BUILD_3DS_IMPORTER OFF)
+SET (ASSIMP_BUILD_AC_IMPORTER OFF)
+SET (ASSIMP_BUILD_ASE_IMPORTER OFF)
+SET (ASSIMP_BUILD_ASSBIN_IMPORTER OFF)
+SET (ASSIMP_BUILD_B3D_IMPORTER OFF)
+SET (ASSIMP_BUILD_BVH_IMPORTER OFF)
+SET (ASSIMP_BUILD_COLLADA_IMPORTER OFF)
+SET (ASSIMP_BUILD_DXF_IMPORTER OFF)
+SET (ASSIMP_BUILD_CSM_IMPORTER OFF)
+SET (ASSIMP_BUILD_HMP_IMPORTER OFF)
+SET (ASSIMP_BUILD_IRRMESH_IMPORTER OFF)
+SET (ASSIMP_BUILD_IQM_IMPORTER OFF)
+SET (ASSIMP_BUILD_IRR_IMPORTER OFF)
+SET (ASSIMP_BUILD_LWO_IMPORTER OFF)
+SET (ASSIMP_BUILD_LWS_IMPORTER OFF)
+SET (ASSIMP_BUILD_M3D_IMPORTER OFF)
+SET (ASSIMP_BUILD_MD2_IMPORTER OFF)
+SET (ASSIMP_BUILD_MD3_IMPORTER OFF)
+SET (ASSIMP_BUILD_MD5_IMPORTER OFF)
+SET (ASSIMP_BUILD_MDC_IMPORTER OFF)
+SET (ASSIMP_BUILD_MDL_IMPORTER OFF)
+SET (ASSIMP_BUILD_NFF_IMPORTER OFF)
+SET (ASSIMP_BUILD_NDO_IMPORTER OFF)
+SET (ASSIMP_BUILD_OFF_IMPORTER OFF)
+SET (ASSIMP_BUILD_OGRE_IMPORTER OFF)
+SET (ASSIMP_BUILD_OPENGEX_IMPORTER OFF)
+SET (ASSIMP_BUILD_PLY_IMPORTER OFF)
+SET (ASSIMP_BUILD_MS3D_IMPORTER OFF)
+SET (ASSIMP_BUILD_COB_IMPORTER OFF)
+SET (ASSIMP_BUILD_BLEND_IMPORTER OFF)
+SET (ASSIMP_BUILD_IFC_IMPORTER OFF)
+SET (ASSIMP_BUILD_XGL_IMPORTER OFF)
+SET (ASSIMP_BUILD_Q3D_IMPORTER OFF)
+SET (ASSIMP_BUILD_Q3BSP_IMPORTER OFF)
+SET (ASSIMP_BUILD_RAW_IMPORTER OFF)
+SET (ASSIMP_BUILD_SIB_IMPORTER OFF)
+SET (ASSIMP_BUILD_SMD_IMPORTER OFF)
+SET (ASSIMP_BUILD_STL_IMPORTER OFF)
+SET (ASSIMP_BUILD_TERRAGEN_IMPORTER OFF)
+SET (ASSIMP_BUILD_3D_IMPORTER OFF)
+SET (ASSIMP_BUILD_X_IMPORTER OFF)
+SET (ASSIMP_BUILD_X3D_IMPORTER OFF)
+SET (ASSIMP_BUILD_3MF_IMPORTER OFF)
+SET (ASSIMP_BUILD_MMD_IMPORTER OFF)
+
+# disable assimp exporters
+SET (ASSIMP_BUILD_OBJ_EXPORTER OFF)
+SET (ASSIMP_BUILD_OPENGEX_EXPORTER OFF)
+SET (ASSIMP_BUILD_PLY_EXPORTER OFF)
+SET (ASSIMP_BUILD_3DS_EXPORTER OFF)
+SET (ASSIMP_BUILD_ASSBIN_EXPORTER OFF)
+SET (ASSIMP_BUILD_ASSXML_EXPORTER OFF)
+SET (ASSIMP_BUILD_M3D_EXPORTER OFF)
+SET (ASSIMP_BUILD_COLLADA_EXPORTER OFF)
+SET (ASSIMP_BUILD_FBX_EXPORTER OFF)
+SET (ASSIMP_BUILD_STL_EXPORTER OFF)
+SET (ASSIMP_BUILD_X_EXPORTER OFF)
+SET (ASSIMP_BUILD_X3D_EXPORTER OFF)
+SET (ASSIMP_BUILD_GLTF_EXPORTER OFF)
+SET (ASSIMP_BUILD_3MF_EXPORTER OFF)
+SET (ASSIMP_BUILD_PBRT_EXPORTER OFF)
+SET (ASSIMP_BUILD_ASSJSON_EXPORTER OFF)
+SET (ASSIMP_BUILD_STEP_EXPORTER OFF)
+
+# other
+CPMAddPackage("gh:assimp/assimp@5.2.5")
+CPMAddPackage("gh:ocornut/imgui#v1.90.4-docking")
+CPMAddPackage("gh:jbeder/yaml-cpp#0.8.0")
+
+set(imgui_SOURCE_DIR ${imgui_SOURCE_DIR} CACHE INTERNAL "")
+add_library(imgui STATIC ${imgui_SOURCE_DIR}/imgui.cpp
+                         ${imgui_SOURCE_DIR}/imgui_demo.cpp
+                         ${imgui_SOURCE_DIR}/imgui_draw.cpp
+                         ${imgui_SOURCE_DIR}/imgui_tables.cpp
+                         ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
+
+target_include_directories(imguizmo PRIVATE ${imgui_SOURCE_DIR})
+target_include_directories(implot PRIVATE ${imgui_SOURCE_DIR})
+target_include_directories(imgui_impl PRIVATE ${imgui_SOURCE_DIR} ${glfw_SOURCE_DIR})
+
+set_target_properties(stb_image
+                      assimp
+                      imgui
+                      imgui_impl
+                      yaml-cpp
+                      miniaudio
+                      imguizmo
+                      implot
+                      ddstextureloader
+                      dx12_ms PROPERTIES FOLDER "thirdparty")
+
+if (TARGET zlibstatic)
+    set_target_properties(zlibstatic PROPERTIES FOLDER "thirdparty")
+endif()
