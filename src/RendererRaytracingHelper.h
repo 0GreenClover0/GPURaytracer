@@ -11,9 +11,10 @@
 
 #pragma once
 
-#include <iomanip>
-#include <sstream>
-
+// Note that while ComPtr is used to manage the lifetime of resources on the CPU,
+// it has no understanding of the lifetime of resources on the GPU. Apps must account
+// for the GPU lifetime of resources to avoid destroying objects that may still be
+// referenced by the GPU.
 using Microsoft::WRL::ComPtr;
 
 class HrException : public std::runtime_error
@@ -227,6 +228,11 @@ public:
         return m_resource;
     }
 
+    virtual void Release()
+    {
+        m_resource.Reset();
+    }
+
 protected:
     ComPtr<ID3D12Resource> m_resource;
 
@@ -270,11 +276,12 @@ struct D3DBuffer
 };
 
 // Helper class to create and update a constant buffer with proper constant buffer alignments.
-// Usage: ToDo
+// Usage:
 //    ConstantBuffer<...> cb;
 //    cb.Create(...);
-//    cb.staging.var = ...; | cb->var = ... ;
+//    cb.staging.var = ... ; | cb->var = ... ;
 //    cb.CopyStagingToGPU(...);
+//    Set...View(..., cb.GputVirtualAddress());
 template<class T>
 class ConstantBuffer : public GpuUploadBuffer
 {
@@ -290,8 +297,8 @@ public:
     void Create(ID3D12Device* device, UINT numInstances = 1, LPCWSTR resourceName = nullptr)
     {
         m_numInstances = numInstances;
-        UINT alignedSize = Align(sizeof(T), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-        UINT bufferSize = numInstances * alignedSize;
+        m_alignedInstanceSize = Align(sizeof(T), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        UINT bufferSize = numInstances * m_alignedInstanceSize;
         Allocate(device, bufferSize, resourceName);
         m_mappedConstantData = MapCpuWriteOnly();
     }
@@ -321,11 +328,12 @@ public:
 };
 
 // Helper class to create and update a structured buffer.
-// Usage: ToDo
-//    ConstantBuffer<...> cb;
-//    cb.Create(...);
-//    cb.staging.var = ...; | cb->var = ... ;
-//    cb.CopyStagingToGPU(...);
+// Usage:
+//    StructuredBuffer<...> sb;
+//    sb.Create(...);
+//    sb[index].var = ... ;
+//    sb.CopyStagingToGPU(...);
+//    Set...View(..., sb.GputVirtualAddress());
 template<class T>
 class StructuredBuffer : public GpuUploadBuffer
 {
@@ -352,7 +360,7 @@ public:
 
     void CopyStagingToGpu(UINT instanceIndex = 0)
     {
-        memcpy(m_mappedBuffers + instanceIndex, &m_staging[0], InstanceSize());
+        memcpy(m_mappedBuffers + instanceIndex * NumElementsPerInstance(), &m_staging[0], InstanceSize());
     }
 
     // Accessors
@@ -386,22 +394,24 @@ public:
 
 struct AccelerationStructureBuffers
 {
-    Microsoft::WRL::ComPtr<ID3D12Resource> scratch;
-    Microsoft::WRL::ComPtr<ID3D12Resource> accelerationStructure;
-    Microsoft::WRL::ComPtr<ID3D12Resource> instanceDesc; // Used only for top-level AS
-    UINT64 ResultDataMaxSizeInBytes;
+    ComPtr<ID3D12Resource> scratch;
+    ComPtr<ID3D12Resource> accelerationStructure;
+    ComPtr<ID3D12Resource> instanceDesc;    // Used only for top-level AS
+    UINT64                 ResultDataMaxSizeInBytes;
 };
 
 // Shader record = {{Shader ID}, {RootArguments}}
 class ShaderRecord
 {
 public:
-    ShaderRecord(void* pShaderIdentifier, UINT shaderIdentifierSize) : shaderIdentifier(pShaderIdentifier, shaderIdentifierSize)
+    ShaderRecord(void* pShaderIdentifier, UINT shaderIdentifierSize) :
+        shaderIdentifier(pShaderIdentifier, shaderIdentifierSize)
     {
     }
 
-    ShaderRecord(void* pShaderIdentifier, UINT shaderIdentifierSize, void* pLocalRootArguments, UINT localRootArgumentsSize)
-        : shaderIdentifier(pShaderIdentifier, shaderIdentifierSize), localRootArguments(pLocalRootArguments, localRootArgumentsSize)
+    ShaderRecord(void* pShaderIdentifier, UINT shaderIdentifierSize, void* pLocalRootArguments, UINT localRootArgumentsSize) :
+        shaderIdentifier(pShaderIdentifier, shaderIdentifierSize),
+        localRootArguments(pLocalRootArguments, localRootArgumentsSize)
     {
     }
 
@@ -415,18 +425,13 @@ public:
         }
     }
 
-    struct PointerWithSize
-    {
-        void* ptr;
+    struct PointerWithSize {
+        void *ptr;
         UINT size;
 
-        PointerWithSize() : ptr(nullptr), size(0)
-        {
-        }
-
+        PointerWithSize() : ptr(nullptr), size(0) {}
         PointerWithSize(void* _ptr, UINT _size) : ptr(_ptr), size(_size) {};
     };
-
     PointerWithSize shaderIdentifier;
     PointerWithSize localRootArguments;
 };
@@ -441,12 +446,10 @@ class ShaderTable : public GpuUploadBuffer
     std::wstring m_name;
     std::vector<ShaderRecord> m_shaderRecords;
 
-    ShaderTable()
-    {
-    }
-
+    ShaderTable() {}
 public:
-    ShaderTable(ID3D12Device* device, UINT numShaderRecords, UINT shaderRecordSize, LPCWSTR resourceName = nullptr) : m_name(resourceName)
+    ShaderTable(ID3D12Device* device, UINT numShaderRecords, UINT shaderRecordSize, LPCWSTR resourceName = nullptr) 
+        : m_name(resourceName)
     {
         m_shaderRecordSize = Align(shaderRecordSize, D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
         m_shaderRecords.reserve(numShaderRecords);
@@ -454,8 +457,8 @@ public:
         Allocate(device, bufferSize, resourceName);
         m_mappedShaderRecords = MapCpuWriteOnly();
     }
-
-    void push_back(ShaderRecord const& shaderRecord)
+    
+    void push_back(const ShaderRecord& shaderRecord)
     {
         ThrowIfFalse(m_shaderRecords.size() < m_shaderRecords.capacity());
         m_shaderRecords.push_back(shaderRecord);
@@ -463,17 +466,15 @@ public:
         m_mappedShaderRecords += m_shaderRecordSize;
     }
 
-    UINT GetShaderRecordSize()
-    {
-        return m_shaderRecordSize;
-    }
+    UINT GetShaderRecordSize() { return m_shaderRecordSize; }
 
     // Pretty-print the shader records.
     void DebugPrint(std::unordered_map<void*, std::wstring> shaderIdToStringMap)
     {
         std::wstringstream wstr;
         wstr << L"|--------------------------------------------------------------------\n";
-        wstr << L"|Shader table - " << m_name.c_str() << L": " << m_shaderRecordSize << L" | "
+        wstr << L"|Shader table - " << m_name.c_str() << L": " 
+             << m_shaderRecordSize << L" | "
              << m_shaderRecords.size() * m_shaderRecordSize << L" bytes\n";
 
         for (UINT i = 0; i < m_shaderRecords.size(); i++)
@@ -488,14 +489,17 @@ public:
     }
 };
 
-inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource** ppResource,
-                              D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON,
-                              wchar_t const* resourceName = nullptr)
+inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Resource **ppResource, D3D12_RESOURCE_STATES initialResourceState = D3D12_RESOURCE_STATE_COMMON, const wchar_t* resourceName = nullptr)
 {
     auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
     auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-    ThrowIfFailed(pDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &bufferDesc, initialResourceState, nullptr,
-                                                   IID_PPV_ARGS(ppResource)));
+    ThrowIfFailed(pDevice->CreateCommittedResource(
+        &uploadHeapProperties,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        initialResourceState,
+        nullptr,
+        IID_PPV_ARGS(ppResource)));
     if (resourceName)
     {
         (*ppResource)->SetName(resourceName);
@@ -503,7 +507,7 @@ inline void AllocateUAVBuffer(ID3D12Device* pDevice, UINT64 bufferSize, ID3D12Re
 }
 
 template<class T, size_t N>
-void DefineExports(T* obj, LPCWSTR (&Exports)[N])
+void DefineExports(T* obj, LPCWSTR(&Exports)[N])
 {
     for (UINT i = 0; i < N; i++)
     {
@@ -512,7 +516,7 @@ void DefineExports(T* obj, LPCWSTR (&Exports)[N])
 }
 
 template<class T, size_t N, size_t M>
-void DefineExports(T* obj, LPCWSTR (&Exports)[N][M])
+void DefineExports(T* obj, LPCWSTR(&Exports)[N][M])
 {
     for (UINT i = 0; i < N; i++)
         for (UINT j = 0; j < M; j++)
@@ -521,18 +525,23 @@ void DefineExports(T* obj, LPCWSTR (&Exports)[N][M])
         }
 }
 
-inline void AllocateUploadBuffer(ID3D12Device* pDevice, void* pData, UINT64 datasize, ID3D12Resource** ppResource,
-                                 wchar_t const* resourceName = nullptr)
+
+inline void AllocateUploadBuffer(ID3D12Device* pDevice, void *pData, UINT64 datasize, ID3D12Resource **ppResource, const wchar_t* resourceName = nullptr)
 {
     auto uploadHeapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
     auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(datasize);
-    ThrowIfFailed(pDevice->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &bufferDesc,
-                                                   D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(ppResource)));
+    ThrowIfFailed(pDevice->CreateCommittedResource(
+        &uploadHeapProperties,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(ppResource)));
     if (resourceName)
     {
         (*ppResource)->SetName(resourceName);
     }
-    void* pMappedData;
+    void *pMappedData;
     (*ppResource)->Map(0, nullptr, &pMappedData);
     memcpy(pMappedData, pData, datasize);
     (*ppResource)->Unmap(0, nullptr);
@@ -544,25 +553,22 @@ inline void print_state_object_desc(const D3D12_STATE_OBJECT_DESC* desc)
     std::wstringstream wstr;
     wstr << L"\n";
     wstr << L"--------------------------------------------------------------------\n";
-    wstr << L"| D3D12 State Object 0x" << static_cast<void const*>(desc) << L": ";
-    if (desc->Type == D3D12_STATE_OBJECT_TYPE_COLLECTION)
-        wstr << L"Collection\n";
-    if (desc->Type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE)
-        wstr << L"Raytracing Pipeline\n";
+    wstr << L"| D3D12 State Object 0x" << static_cast<const void*>(desc) << L": ";
+    if (desc->Type == D3D12_STATE_OBJECT_TYPE_COLLECTION) wstr << L"Collection\n";
+    if (desc->Type == D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE) wstr << L"Raytracing Pipeline\n";
 
-    auto ExportTree = [](UINT depth, UINT numExports, const D3D12_EXPORT_DESC* exports) {
+    auto ExportTree = [](UINT depth, UINT numExports, const D3D12_EXPORT_DESC* exports)
+    {
         std::wostringstream woss;
         for (UINT i = 0; i < numExports; i++)
         {
             woss << L"|";
             if (depth > 0)
             {
-                for (UINT j = 0; j < 2 * depth - 1; j++)
-                    woss << L" ";
+                for (UINT j = 0; j < 2 * depth - 1; j++) woss << L" ";
             }
             woss << L" [" << i << L"]: ";
-            if (exports[i].ExportToRename)
-                woss << exports[i].ExportToRename << L" --> ";
+            if (exports[i].ExportToRename) woss << exports[i].ExportToRename << L" --> ";
             woss << exports[i].Name << L"\n";
         }
         return woss.str();
@@ -580,8 +586,7 @@ inline void print_state_object_desc(const D3D12_STATE_OBJECT_DESC* desc)
             wstr << L"Local Root Signature 0x" << desc->pSubobjects[i].pDesc << L"\n";
             break;
         case D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK:
-            wstr << L"Node Mask: 0x" << std::hex << std::setfill(L'0') << std::setw(8)
-                 << *static_cast<const UINT*>(desc->pSubobjects[i].pDesc) << std::setw(0) << std::dec << L"\n";
+            wstr << L"Node Mask: 0x" << std::hex << std::setfill(L'0') << std::setw(8) << *static_cast<const UINT*>(desc->pSubobjects[i].pDesc) << std::setw(0) << std::dec << L"\n";
             break;
         case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY:
         {
@@ -643,10 +648,8 @@ inline void print_state_object_desc(const D3D12_STATE_OBJECT_DESC* desc)
             auto hitGroup = static_cast<const D3D12_HIT_GROUP_DESC*>(desc->pSubobjects[i].pDesc);
             wstr << (hitGroup->HitGroupExport ? hitGroup->HitGroupExport : L"[none]") << L")\n";
             wstr << L"|  [0]: Any Hit Import: " << (hitGroup->AnyHitShaderImport ? hitGroup->AnyHitShaderImport : L"[none]") << L"\n";
-            wstr << L"|  [1]: Closest Hit Import: " << (hitGroup->ClosestHitShaderImport ? hitGroup->ClosestHitShaderImport : L"[none]")
-                 << L"\n";
-            wstr << L"|  [2]: Intersection Import: "
-                 << (hitGroup->IntersectionShaderImport ? hitGroup->IntersectionShaderImport : L"[none]") << L"\n";
+            wstr << L"|  [1]: Closest Hit Import: " << (hitGroup->ClosestHitShaderImport ? hitGroup->ClosestHitShaderImport : L"[none]") << L"\n";
+            wstr << L"|  [2]: Intersection Import: " << (hitGroup->IntersectionShaderImport ? hitGroup->IntersectionShaderImport : L"[none]") << L"\n";
             break;
         }
         }
@@ -659,10 +662,17 @@ inline void print_state_object_desc(const D3D12_STATE_OBJECT_DESC* desc)
 // Returns bool whether the device supports DirectX Raytracing tier.
 inline bool IsDirectXRaytracingSupported(IDXGIAdapter1* adapter)
 {
-    Microsoft::WRL::ComPtr<ID3D12Device> testDevice;
+    ComPtr<ID3D12Device> testDevice;
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 featureSupportData = {};
 
     return SUCCEEDED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&testDevice)))
         && SUCCEEDED(testDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &featureSupportData, sizeof(featureSupportData)))
         && featureSupportData.RaytracingTier != D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
+}
+
+inline float NumMRaysPerSecond(UINT width, UINT height, float dispatchRaysTimeMs)
+{
+    float resolutionMRays = static_cast<float>(width * height);
+    float raytracingTimeInSeconds = 0.001f * dispatchRaysTimeMs;
+    return resolutionMRays / (raytracingTimeInSeconds * static_cast<float>(1e6));
 }

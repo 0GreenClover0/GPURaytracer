@@ -3,6 +3,8 @@
 #include "AK/Types.h"
 #include "ConstantBuffers.h"
 #include "DeviceResources.h"
+#include "PerformanceTimers.h"
+#include "RaytracingSceneDefines.h"
 #include "StepTimer.h"
 
 #include <dxgi.h>
@@ -10,31 +12,6 @@
 #include <string>
 
 class Window;
-
-namespace GlobalRootSignatureParams
-{
-
-enum Value
-{
-    OutputViewSlot = 0,
-    AccelerationStructureSlot,
-    SceneConstantSlot,
-    VertexBuffersSlot,
-    Count
-};
-
-}
-
-namespace LocalRootSignatureParams
-{
-
-enum Value
-{
-    CubeConstantSlot = 0,
-    Count
-};
-
-}
 
 class Renderer
     : public IDeviceNotify
@@ -65,24 +42,40 @@ private:
         D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor_handle;
     };
 
-    static_assert(sizeof(SceneConstantBuffer) < D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, "Checking the size here.");
-
     void initialize_scene();
     void update_camera_matrices();
+    void update_aabb_primitive_attributes(float const animation_time);
     void create_constant_buffers();
+    void create_aabb_primitive_attributes_buffers();
 
     void calculate_frame_stats() const;
     void do_raytracing();
     void copy_raytracing_output_to_backbuffer() const;
 
     void build_geometry(); // TODO: Sample specific
+    void build_procedural_geometry_aabbs();
+    void build_plane_geometry();
+    void build_geometry_descs_for_bottom_level_as(
+        std::array<std::vector<D3D12_RAYTRACING_GEOMETRY_DESC>, BottomLevelASType::Count>& geometry_descs);
+    template<class InstanceDescType, class BLASPtrType>
+    void build_bottom_level_as_instance_descs(BLASPtrType* bottom_level_as_addresses, ComPtr<ID3D12Resource>* instance_descs_resource);
+    [[nodiscard]] AccelerationStructureBuffers build_bottom_level_as(
+        std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> const& geometry_descs,
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS build_flags =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE) const;
+    [[nodiscard]] AccelerationStructureBuffers build_top_level_as(AccelerationStructureBuffers bottom_level_as[BottomLevelASType::Count],
+                                                                  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS build_flags =
+                                                                      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE);
     void build_acceleration_structures();
     void build_shader_tables();
 
     void create_device_dependent_resources();
     void create_raytracing_interfaces();
     void create_root_signatures();
+    void create_dxil_library_subobject(CD3DX12_STATE_OBJECT_DESC* raytracing_pipeline);
+    void create_hit_group_subobjects(CD3DX12_STATE_OBJECT_DESC* raytracing_pipeline);
     void create_raytracing_pipeline_state_object();
+    void create_auxilary_device_resources();
     void create_local_root_signature_subobjects(CD3DX12_STATE_OBJECT_DESC* raytracing_pipeline) const;
     void create_descriptor_heap();
     void create_raytracing_output_resource();
@@ -98,34 +91,41 @@ private:
 
     static u32 constexpr frame_count = 3;
 
-    union AlignedSceneConstantBuffer {
-        SceneConstantBuffer constants;
-        uint8_t alignment_padding[D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT];
-    };
-
-    AlignedSceneConstantBuffer* m_mapped_constant_data = {};
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_per_frame_constants = {};
+    static u32 constexpr num_blas = 2; // Triangle + AABB bottom-level AS.
+    static float constexpr aabb_width = 2.0f;
+    static float constexpr aabb_distance = 2.0f; // Distance between AABBs.
 
     // FIXME: Isn't u16 pretty low for an index?
     typedef u16 Index;
 
     // Application state
+    std::array<DX::GPUTimer, GpuTimers::Count> m_gpu_timers = {};
     StepTimer m_timer;
+    float m_animate_geometry_time = 0.0f;
+    bool m_animate_geometry = false;
+    bool m_animate_camera = false;
+    bool m_animate_light = false;
     XMVECTOR m_eye = {};
     XMVECTOR m_at = {};
     XMVECTOR m_up = {};
 
     // TODO: Sample specific
-    SceneConstantBuffer m_scene_cb[frame_count];
-    CubeConstantBuffer m_cube_cb;
+    ConstantBuffer<SceneConstantBuffer> m_scene_cb;
+    StructuredBuffer<PrimitiveInstancePerFrameBuffer> m_aabb_primitive_attribute_buffer = {};
+    std::vector<D3D12_RAYTRACING_AABB> m_aabbs = {};
+
+    // Root constants
+    PrimitiveConstantBuffer m_plane_material_cb = {};
+    PrimitiveConstantBuffer m_aabb_material_cb[IntersectionShaderType::TOTAL_PRIMITIVE_COUNT];
 
     // Geometry
     D3DBuffer m_index_buffer = {};
     D3DBuffer m_vertex_buffer = {};
+    D3DBuffer m_aabb_buffer = {};
 
     // Acceleration structure
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_bottom_level_acceleration_structure = {};
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_top_level_acceleration_structure = {};
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, BottomLevelASType::Count> m_bottom_level_as = {};
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_top_level_as = {};
 
     // Raytracing output
     Microsoft::WRL::ComPtr<ID3D12Resource> m_raytracing_output = {};
@@ -133,12 +133,17 @@ private:
     u32 m_raytracing_output_resource_uav_descriptor_heap_index = UINT_MAX;
 
     // Shader tables
-    static wchar_t const* hit_group_name;
+    static wchar_t const* hit_group_names_triangle_geometry[RayType::Count];
+    static wchar_t const* hit_group_names_aabb_geometry[IntersectionShaderType::Count][RayType::Count];
     static wchar_t const* raygen_shader_name;
-    static wchar_t const* closest_hit_shader_name;
-    static wchar_t const* miss_shader_name;
+    static wchar_t const* intersection_shader_names[IntersectionShaderType::Count];
+    static wchar_t const* closest_hit_shader_names[GeometryType::Count];
+    static wchar_t const* miss_shader_names[RayType::Count];
+
     Microsoft::WRL::ComPtr<ID3D12Resource> m_miss_shader_table = {};
+    u32 m_miss_shader_table_stride_in_bytes = UINT_MAX;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_hit_group_shader_table = {};
+    u32 m_hit_group_shader_table_stride_in_bytes = UINT_MAX;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_ray_gen_shader_table = {};
 
     u32 m_adapter_id_override = U32_MAX;
@@ -153,7 +158,7 @@ private:
 
     // Root signatures
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_raytracing_global_root_signature = {};
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_raytracing_local_root_signature = {};
+    std::array<Microsoft::WRL::ComPtr<ID3D12RootSignature>, LocalRootSignature::Type::Count> m_raytracing_local_root_signature = {};
 
     // Descriptors
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_descriptor_heap = {};
